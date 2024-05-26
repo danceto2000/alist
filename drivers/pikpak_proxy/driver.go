@@ -1,9 +1,10 @@
-package pikpak
+package pikpak_proxy
 
 import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/alist-org/alist/v3/drivers/base"
@@ -20,22 +21,22 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type PikPak struct {
+type PikPakProxy struct {
 	model.Storage
 	Addition
 
 	oauth2Token oauth2.TokenSource
 }
 
-func (d *PikPak) Config() driver.Config {
+func (d *PikPakProxy) Config() driver.Config {
 	return config
 }
 
-func (d *PikPak) GetAddition() driver.Additional {
+func (d *PikPakProxy) GetAddition() driver.Additional {
 	return &d.Addition
 }
 
-func (d *PikPak) Init(ctx context.Context) (err error) {
+func (d *PikPakProxy) Init(ctx context.Context) (err error) {
 	if d.ClientID == "" || d.ClientSecret == "" {
 		d.ClientID = "YNxT9w7GMdWvEOKa"
 		d.ClientSecret = "dbw2OtmVEeuUvIptb1Coyg"
@@ -45,15 +46,31 @@ func (d *PikPak) Init(ctx context.Context) (err error) {
 		return context.WithValue(ctx, oauth2.HTTPClient, base.HttpClient)
 	}
 
+	auth_url := "https://user.mypikpak.com/v1/auth/signin"
+	token_url := "https://user.mypikpak.com/v1/auth/token"
+
 	oauth2Config := &oauth2.Config{
 		ClientID:     d.ClientID,
 		ClientSecret: d.ClientSecret,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:   "https://user.mypikpak.com/v1/auth/signin",
-			TokenURL:  "https://user.mypikpak.com/v1/auth/token",
+			AuthURL:   auth_url,
+			TokenURL:  token_url,
 			AuthStyle: oauth2.AuthStyleInParams,
 		},
 	}
+
+	// 创建代理地址
+	proxyURL, _ := url.Parse(d.ProxyUrl)
+
+	// 创建自定义的 HTTP Transport 设置代理
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxyURL),
+	}
+
+	httpClient := &http.Client{
+		Transport: transport,
+	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 
 	oauth2Token, err := oauth2Config.PasswordCredentialsToken(withClient(ctx), d.Username, d.Password)
 	if err != nil {
@@ -63,11 +80,11 @@ func (d *PikPak) Init(ctx context.Context) (err error) {
 	return nil
 }
 
-func (d *PikPak) Drop(ctx context.Context) error {
+func (d *PikPakProxy) Drop(ctx context.Context) error {
 	return nil
 }
 
-func (d *PikPak) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
+func (d *PikPakProxy) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
 	files, err := d.getFiles(dir.GetID())
 	if err != nil {
 		return nil, err
@@ -77,7 +94,7 @@ func (d *PikPak) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 	})
 }
 
-func (d *PikPak) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
+func (d *PikPakProxy) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	var resp File
 	_, err := d.request(fmt.Sprintf("https://api-drive.mypikpak.com/drive/v1/files/%s?_magic=2021&thumbnail_size=SIZE_LARGE", file.GetID()),
 		http.MethodGet, nil, &resp)
@@ -91,10 +108,17 @@ func (d *PikPak) Link(ctx context.Context, file model.Obj, args model.LinkArgs) 
 		log.Debugln("use media link")
 		link.URL = resp.Medias[0].Link.Url
 	}
+
+	if strings.HasSuffix(d.ProxyUrl, "/") {
+		link.URL = d.ProxyUrl + link.URL
+	} else {
+		link.URL = d.ProxyUrl + "/" + link.URL
+	}
+
 	return &link, nil
 }
 
-func (d *PikPak) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
+func (d *PikPakProxy) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
 	_, err := d.request("https://api-drive.mypikpak.com/drive/v1/files", http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
 			"kind":      "drive#folder",
@@ -105,7 +129,7 @@ func (d *PikPak) MakeDir(ctx context.Context, parentDir model.Obj, dirName strin
 	return err
 }
 
-func (d *PikPak) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
+func (d *PikPakProxy) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
 	_, err := d.request("https://api-drive.mypikpak.com/drive/v1/files:batchMove", http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
 			"ids": []string{srcObj.GetID()},
@@ -117,7 +141,7 @@ func (d *PikPak) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
 	return err
 }
 
-func (d *PikPak) Rename(ctx context.Context, srcObj model.Obj, newName string) error {
+func (d *PikPakProxy) Rename(ctx context.Context, srcObj model.Obj, newName string) error {
 	_, err := d.request("https://api-drive.mypikpak.com/drive/v1/files/"+srcObj.GetID(), http.MethodPatch, func(req *resty.Request) {
 		req.SetBody(base.Json{
 			"name": newName,
@@ -126,7 +150,7 @@ func (d *PikPak) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 	return err
 }
 
-func (d *PikPak) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
+func (d *PikPakProxy) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 	_, err := d.request("https://api-drive.mypikpak.com/drive/v1/files:batchCopy", http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
 			"ids": []string{srcObj.GetID()},
@@ -138,7 +162,7 @@ func (d *PikPak) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 	return err
 }
 
-func (d *PikPak) Remove(ctx context.Context, obj model.Obj) error {
+func (d *PikPakProxy) Remove(ctx context.Context, obj model.Obj) error {
 	_, err := d.request("https://api-drive.mypikpak.com/drive/v1/files:batchTrash", http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
 			"ids": []string{obj.GetID()},
@@ -147,7 +171,7 @@ func (d *PikPak) Remove(ctx context.Context, obj model.Obj) error {
 	return err
 }
 
-func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+func (d *PikPakProxy) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
 	hi := stream.GetHash()
 	sha1Str := hi.GetHash(hash_extend.GCID)
 	if len(sha1Str) < hash_extend.GCID.Width {
@@ -209,4 +233,4 @@ func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 	return err
 }
 
-var _ driver.Driver = (*PikPak)(nil)
+var _ driver.Driver = (*PikPakProxy)(nil)

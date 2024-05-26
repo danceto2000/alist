@@ -61,7 +61,7 @@ func (x *ThunderX) Init(ctx context.Context) (err error) {
 				ClientVersion:     "1.05.0.2115",
 				PackageName:       "com.thunder.downloader",
 				UserAgent:         "ANDROID-com.thunder.downloader/1.05.0.2115 netWorkType/5G appid/40 deviceName/Xiaomi_M2004j7ac deviceModel/M2004J7AC OSVersion/12 protocolVersion/301 platformVersion/10 sdkVersion/220200 Oauth2Client/0.9 (Linux 4_14_186-perf-gddfs8vbb238b) (JAVA 0)",
-				DownloadUserAgent: "Dalvik/2.1.0 (Linux; U; Android 12; M2004J7AC Build/SP1A.210812.016)",
+				DownloadUserAgent: "AndroidDownloadManager/12 (Linux; U; Android 12; M2004J7AC Build/SP1A.210812.016)",
 				UseVideoUrl:       x.UseVideoUrl,
 
 				refreshCTokenCk: func(token string) {
@@ -149,6 +149,8 @@ func (x *ThunderXExpert) Init(ctx context.Context) (err error) {
 				UserAgent:         x.UserAgent,
 				DownloadUserAgent: x.DownloadUserAgent,
 				UseVideoUrl:       x.UseVideoUrl,
+				UseProxy:          x.UseProxy,
+				ProxyUrl:          x.ProxyUrl,
 
 				refreshCTokenCk: func(token string) {
 					x.CaptchaToken = token
@@ -270,6 +272,14 @@ func (xc *XunLeiXCommon) Link(ctx context.Context, file model.Obj, args model.Li
 		}
 	}
 
+	if xc.UseProxy {
+		if strings.HasSuffix(xc.ProxyUrl, "/") {
+			link.URL = xc.ProxyUrl + link.URL
+		} else {
+			link.URL = xc.ProxyUrl + "/" + link.URL
+		}
+	}
+
 	/*
 		strs := regexp.MustCompile(`e=([0-9]*)`).FindStringSubmatch(lFile.WebContentLink)
 		if len(strs) == 2 {
@@ -318,14 +328,24 @@ func (xc *XunLeiXCommon) Rename(ctx context.Context, srcObj model.Obj, newName s
 func (xc *XunLeiXCommon) Offline(ctx context.Context, args model.OtherArgs) (interface{}, error) {
 	_, err := xc.Request(FILE_API_URL, http.MethodPost, func(r *resty.Request) {
 		r.SetContext(ctx)
+		r.SetHeaders(map[string]string{
+			"X-Device-Id": xc.DeviceID,
+			"User-Agent":  xc.UserAgent,
+			"Peer-Id":     xc.DeviceID,
+			"client_id":   xc.ClientID,
+			"x-client-id": xc.ClientID,
+			"X-Guid":      xc.DeviceID,
+		})
 		r.SetBody(&base.Json{
 			"kind":        "drive#file",
 			"name":        "",
+			"parent_id":   args.Obj.GetID(),
 			"upload_type": "UPLOAD_TYPE_URL",
 			"url": &base.Json{
-				"url": args.Data,
+				"url":       args.Data,
+				"params":    "{}",
+				"parent_id": args.Obj.GetID(),
 			},
-			"folder_type": "DOWNLOAD",
 		})
 	}, nil)
 	if err != nil {
@@ -535,6 +555,7 @@ func (xc *XunLeiXCommon) Login(username, password string) (*TokenResp, error) {
 	if err != nil {
 		return nil, err
 	}
+	resp.UserID = resp.Sub
 	return &resp, nil
 }
 

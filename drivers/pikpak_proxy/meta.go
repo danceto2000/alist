@@ -1,4 +1,4 @@
-package pikpak
+package pikpak_proxy
 
 import (
 	"github.com/alist-org/alist/v3/internal/driver"
@@ -12,16 +12,17 @@ type Addition struct {
 	ClientID         string `json:"client_id" required:"true" default:"YNxT9w7GMdWvEOKa"`
 	ClientSecret     string `json:"client_secret" required:"true" default:"dbw2OtmVEeuUvIptb1Coyg"`
 	DisableMediaLink bool   `json:"disable_media_link"`
+	ProxyUrl         string `json:"proxy_url" required:"true" default:"https://pikpak.995579.xyz/"`
 }
 
 var config = driver.Config{
-	Name:        "PikPak",
+	Name:        "PikPakProxy",
 	LocalSort:   true,
 	DefaultRoot: "",
 }
 
 func init() {
 	op.RegisterDriver(func() driver.Driver {
-		return &PikPak{}
+		return &PikPakProxy{}
 	})
 }

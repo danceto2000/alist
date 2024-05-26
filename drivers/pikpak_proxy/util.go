@@ -1,8 +1,9 @@
-package pikpak
+package pikpak_proxy
 
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/go-resty/resty/v2"
@@ -10,7 +11,7 @@ import (
 
 // do others that not defined in Driver interface
 
-func (d *PikPak) request(url string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
+func (d *PikPakProxy) request(url string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
 	req := base.RestyClient.R()
 
 	token, err := d.oauth2Token.Token()
@@ -27,7 +28,16 @@ func (d *PikPak) request(url string, method string, callback base.ReqCallback, r
 	}
 	var e RespErr
 	req.SetError(&e)
-	res, err := req.Execute(method, url)
+
+	reurl := url
+
+	if strings.HasSuffix(d.ProxyUrl, "/") {
+		reurl = d.ProxyUrl + url
+	} else {
+		reurl = d.ProxyUrl + "/" + url
+	}
+
+	res, err := req.Execute(method, reurl)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +48,7 @@ func (d *PikPak) request(url string, method string, callback base.ReqCallback, r
 	return res.Body(), nil
 }
 
-func (d *PikPak) getFiles(id string) ([]File, error) {
+func (d *PikPakProxy) getFiles(id string) ([]File, error) {
 	res := make([]File, 0)
 	pageToken := "first"
 	for pageToken != "" {
